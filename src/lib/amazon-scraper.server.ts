@@ -1,22 +1,25 @@
-// Server-only Amazon UK jobs scraper — warm-session polling version.
+// Server-only Amazon UK jobs scraper — human-paced version.
 //
-// Previous version launched a fresh browser and reloaded the search page on
-// every scrape. That's 10-30s of overhead per cycle (browser boot + WAF
-// challenge + page load) before we've even checked for a new job — way too
-// slow if the goal is alerting within a couple of seconds of a posting.
+// Previous version launched a browser once, captured a GraphQL request, and
+// replayed it via raw fetch every ~2s forever. That replay pattern — same
+// session, zero navigation, identical request fired on a robotic clock — is
+// a strong bot fingerprint on top of the interval itself, and it's part of
+// what got this app blocked by CloudFront/WAF.
 //
-// This version launches the browser ONCE and keeps it open. The first page
-// load still has to pass the WAF challenge and mint a session, same as
-// before — we don't try to fake that. But we capture the exact
-// searchJobCardsByLocation request the page makes, then replay it directly
-// (via fetch, executed inside the still-open page so cookies/session stay
-// valid) with fresh variables on every subsequent poll. No navigation, no
-// WAF challenge, no new session — just the one HTTP round trip we actually
-// need, every ~2s.
+// This version launches a fresh browser, does ONE real navigation, and lets
+// the page's own script fire its own search request naturally. We just
+// listen for that response rather than replaying anything ourselves. Then
+// we close the browser. At a 10-minute polling cadence there's no
+// performance reason to keep a session warm — a fresh, human-shaped visit
+// every 10 minutes is both simpler and a much better traffic signature.
 //
-// If a poll ever comes back looking like the session died (auth error, or
-// no captured request yet), we tear down and re-mint a fresh session once,
-// then retry.
+// Note: this fetches ONE broad, UK-wide result set per poll rather than a
+// separate navigation per configured search query — multiplying navigations
+// by query count would undo the point of slowing down. Per-subscriber
+// keyword/city filtering still happens downstream in broadcast.server.ts
+// (matchesFilter), so subscribers still only get jobs matching what they
+// asked for; this just changes how broadly we fetch, not how narrowly we
+// deliver.
 
 export type ScrapedJob = {
   external_id: string;
@@ -48,50 +51,7 @@ function pickUserAgent(): string {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
-// ============================================================================
-// Geocoding (unchanged) — needed to turn a city name into the lat/lng the
-// job search itself requires.
-// ============================================================================
-
-const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
-const geocodeCache = new Map<string, { lat: number; lng: number } | null>();
 const UK_DEFAULT_GEO = { lat: 52.3555, lng: -1.1743 };
-
-async function geocodeCityUK(city: string): Promise<{ lat: number; lng: number } | null> {
-  const key = city.trim().toLowerCase();
-  if (geocodeCache.has(key)) return geocodeCache.get(key)!;
-
-  const params = new URLSearchParams({ q: city, format: "json", countrycodes: "gb", limit: "1" });
-  try {
-    const res = await fetch(`${NOMINATIM_URL}?${params.toString()}`, {
-      headers: {
-        "User-Agent": "amazon-jobs-scraper/1.0 (contact: set-your-contact-here)",
-        Accept: "application/json",
-      },
-    });
-    if (!res.ok) {
-      geocodeCache.set(key, null);
-      return null;
-    }
-    const results = (await res.json()) as { lat: string; lon: string }[];
-    if (!results.length) {
-      geocodeCache.set(key, null);
-      return null;
-    }
-    const point = { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
-    geocodeCache.set(key, point);
-    await sleep(1000); // be polite to Nominatim's free tier
-    return point;
-  } catch (e) {
-    console.error(`geocodeCityUK(${city}) failed`, e);
-    geocodeCache.set(key, null);
-    return null;
-  }
-}
-
-// ============================================================================
-// Warm session management
-// ============================================================================
 
 type UKJobCard = {
   jobId: string;
@@ -107,136 +67,6 @@ type UKJobCard = {
   jobContainerJobMetaL1: string[] | null;
   [key: string]: any;
 };
-
-type CapturedRequest = {
-  url: string;
-  headers: Record<string, string>;
-  query: string;
-};
-
-type LiveSession = {
-  browser: import("playwright").Browser;
-  context: import("playwright").BrowserContext;
-  page: import("playwright").Page;
-  captured: CapturedRequest | null;
-};
-
-let session: LiveSession | null = null;
-let sessionStarting: Promise<LiveSession> | null = null;
-
-// Headers that either can't be set manually from page.evaluate's fetch, or
-// would be wrong if replayed verbatim (they change per-request or are
-// managed by the browser itself).
-const DROP_HEADERS = new Set([
-  "host",
-  "content-length",
-  "connection",
-  "accept-encoding",
-  "cookie",
-  "user-agent",
-]);
-
-async function bootSession(): Promise<LiveSession> {
-  const { chromium } = await import("playwright");
-  const browser = await chromium.launch({ headless: process.env.SCRAPER_HEADLESS !== "false" });
-  const context = await browser.newContext({
-    userAgent: pickUserAgent(),
-    locale: "en-GB",
-    geolocation: { latitude: UK_DEFAULT_GEO.lat, longitude: UK_DEFAULT_GEO.lng },
-    permissions: ["geolocation"],
-  });
-  const page = await context.newPage();
-
-  let captured: CapturedRequest | null = null;
-  page.on("request", (req) => {
-    if (captured) return;
-    if (!req.url().includes("/graphql")) return;
-    if (req.method() !== "POST") return;
-    const postData = req.postData();
-    if (!postData || !postData.includes("searchJobCardsByLocation")) return;
-    try {
-      const parsed = JSON.parse(postData);
-      const rawHeaders = req.headers();
-      const headers: Record<string, string> = {};
-      for (const [k, v] of Object.entries(rawHeaders)) {
-        if (!DROP_HEADERS.has(k.toLowerCase())) headers[k] = v;
-      }
-      captured = { url: req.url(), headers, query: parsed.query };
-    } catch {
-      // not JSON, or shape unexpected — ignore, we'll error out below if
-      // nothing ever gets captured
-    }
-  });
-
-  const url = "https://www.jobsatamazon.co.uk/app#/jobSearch?locale=en-GB";
-  await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
-  await page.waitForTimeout(4000);
-
-  if (!captured) {
-    await browser.close();
-    throw new Error(
-      "bootSession: never captured a searchJobCardsByLocation request. Either the WAF " +
-        "challenge didn't pass, or the page no longer fires that query the same way — " +
-        "run with SCRAPER_HEADLESS=false locally to watch it load."
-    );
-  }
-
-  return { browser, context, page, captured };
-}
-
-async function ensureSession(): Promise<LiveSession> {
-  if (session && !session.page.isClosed()) return session;
-  if (sessionStarting) return sessionStarting;
-
-  sessionStarting = bootSession()
-    .then((s) => {
-      session = s;
-      sessionStarting = null;
-      return s;
-    })
-    .catch((e) => {
-      sessionStarting = null;
-      throw e;
-    });
-
-  return sessionStarting;
-}
-
-async function invalidateSession() {
-  if (session) {
-    try {
-      await session.browser.close();
-    } catch {
-      // already gone — fine
-    }
-  }
-  session = null;
-}
-
-// ============================================================================
-// Polling — replay the captured request with fresh variables, no navigation.
-// ============================================================================
-
-async function pollGraphQL(
-  live: LiveSession,
-  variables: Record<string, any>
-): Promise<{ data?: any; errors?: any }> {
-  const { page, captured } = live;
-  if (!captured) throw new Error("pollGraphQL: no captured request on this session");
-
-  return page.evaluate(
-    async ({ url, headers, query, variables }) => {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { ...headers, "content-type": "application/json" },
-        body: JSON.stringify({ query, variables }),
-        credentials: "include",
-      });
-      return res.json();
-    },
-    { url: captured.url, headers: captured.headers, query: captured.query, variables }
-  );
-}
 
 function normalizeUKJobCard(j: UKJobCard): ScrapedJob {
   return {
@@ -262,110 +92,101 @@ function normalizeUKJobCard(j: UKJobCard): ScrapedJob {
   };
 }
 
-async function pollOneQuery(
-  keyword: string | null,
-  city: string | null,
-  radiusMiles = 30,
-  isRetry = false
-): Promise<ScrapedJob[]> {
-  let live: LiveSession;
+/**
+ * One fresh, human-shaped visit: launch → navigate → wait for the page's own
+ * search response → close. No replay, no long-lived session.
+ */
+async function scrapeOnce(): Promise<ScrapedJob[]> {
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({
+    headless: process.env.SCRAPER_HEADLESS !== "false",
+  });
+
   try {
-    live = await ensureSession();
-  } catch (e) {
-    console.error("pollOneQuery: could not establish a session", e);
-    return [];
-  }
-
-  let geo = UK_DEFAULT_GEO;
-  let distance = 300; // UK-wide fallback radius when no city given
-  if (city && city.trim()) {
-    const point = await geocodeCityUK(city);
-    if (point) {
-      geo = point;
-      distance = radiusMiles;
-    }
-  }
-
-  const variables = {
-    searchJobRequest: {
+    const context = await browser.newContext({
+      userAgent: pickUserAgent(),
       locale: "en-GB",
-      country: "United Kingdom",
-      keyWords: keyword ?? "",
-      equalFilters: [],
-      containFilters: [{ key: "isPrivateSchedule", val: ["true", "false"] }],
-      rangeFilters: [],
-      orFilters: [],
-      dateFilters: [],
-      sorters: [],
-      pageSize: 100,
-      geoQueryClause: { lat: geo.lat, lng: geo.lng, unit: "mi", distance },
-      consolidateSchedule: true,
-    },
-  };
+      geolocation: { latitude: UK_DEFAULT_GEO.lat, longitude: UK_DEFAULT_GEO.lng },
+      permissions: ["geolocation"],
+    });
+    const page = await context.newPage();
 
-  let json: { data?: any; errors?: any };
-  try {
-    json = await pollGraphQL(live, variables);
-  } catch (e) {
-    // page.evaluate throwing usually means the page/context died underneath us.
-    if (isRetry) {
-      console.error("pollOneQuery: poll failed even after re-minting session", e);
+    const responsePromise = page
+      .waitForResponse(
+        (res) => {
+          if (res.request().method() !== "POST") return false;
+          if (!res.url().includes("/graphql")) return false;
+          const postData = res.request().postData();
+          return !!postData && postData.includes("searchJobCardsByLocation");
+        },
+        { timeout: 45000 }
+      )
+      .catch(() => null);
+
+    const url = "https://www.jobsatamazon.co.uk/app#/jobSearch?locale=en-GB";
+    await page.goto(url, { waitUntil: "networkidle", timeout: 45000 }).catch((e) => {
+      console.warn("scrapeOnce: goto() did not settle cleanly", e);
+    });
+
+    const response = await responsePromise;
+    if (!response) {
+      console.warn(
+        "scrapeOnce: never observed a searchJobCardsByLocation response on this visit — " +
+          "page may be blocked, or the app no longer fires that query on load. " +
+          "Run with SCRAPER_HEADLESS=false locally to inspect."
+      );
       return [];
     }
-    console.warn("pollOneQuery: poll failed, re-minting session and retrying once", e);
-    await invalidateSession();
-    return pollOneQuery(keyword, city, radiusMiles, true);
-  }
 
-  const looksLikeAuthFailure =
-    !!json?.errors &&
-    JSON.stringify(json.errors).match(/unauthoriz|forbidden|token|expired/i);
-
-  if (looksLikeAuthFailure) {
-    if (isRetry) {
-      console.error("pollOneQuery: session still unauthorized after re-mint", json.errors);
+    if (!response.ok()) {
+      console.warn(`scrapeOnce: search response came back with status ${response.status()}`);
       return [];
     }
-    console.warn("pollOneQuery: session looks expired, re-minting and retrying once");
-    await invalidateSession();
-    return pollOneQuery(keyword, city, radiusMiles, true);
-  }
 
-  const cards: UKJobCard[] = json?.data?.searchJobCardsByLocation?.jobCards ?? [];
-  return cards.map(normalizeUKJobCard);
+    let json: any;
+    try {
+      json = await response.json();
+    } catch (e) {
+      console.warn("scrapeOnce: search response was not valid JSON", e);
+      return [];
+    }
+
+    const looksLikeBlock =
+      !!json?.errors && JSON.stringify(json.errors).match(/unauthoriz|forbidden|waf|token|expired/i);
+    if (looksLikeBlock) {
+      console.warn("scrapeOnce: search response indicates a block/auth failure", json.errors);
+      return [];
+    }
+
+    const cards: UKJobCard[] = json?.data?.searchJobCardsByLocation?.jobCards ?? [];
+    return cards.map(normalizeUKJobCard);
+  } finally {
+    await browser.close().catch(() => {
+      // already gone — fine
+    });
+  }
 }
 
 // ============================================================================
 // Public entry point — same shape as before, so callers don't need to change.
+// `queries` is currently unused for actual filtering (see note at top of
+// file) but kept in the signature so broadcast.server.ts doesn't need to
+// change. Per-subscriber filtering still happens downstream.
 // ============================================================================
 
 export async function scrapeAll(
-  queries: { keyword: string | null; city: string | null }[]
+  _queries: { keyword: string | null; city: string | null }[]
 ): Promise<ScrapedJob[]> {
-  const list = queries.length > 0 ? queries : [{ keyword: null, city: null }];
-  const out: ScrapedJob[] = [];
-  const seen = new Set<string>();
-
-  for (const q of list) {
-    let jobs: ScrapedJob[] = [];
-    try {
-      jobs = await pollOneQuery(q.keyword, q.city);
-    } catch (e) {
-      console.error("scrapeAll: query failed", q, e);
-    }
-    for (const j of jobs) {
-      if (!seen.has(j.external_id)) {
-        seen.add(j.external_id);
-        out.push(j);
-      }
-    }
+  try {
+    return await scrapeOnce();
+  } catch (e) {
+    console.error("scrapeAll: visit failed", e);
+    return [];
   }
-
-  return out;
 }
 
-// Exposed for a graceful shutdown hook if you want one (not required — the
-// process exiting cleans up the browser anyway).
+// Kept for API compatibility with any existing callers/shutdown hooks — this
+// version has no long-lived session to close, so it's a no-op.
 export async function closeScraperSession() {
-  await invalidateSession();
+  // no-op: sessions are no longer kept warm between polls
 }
