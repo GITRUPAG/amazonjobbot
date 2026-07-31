@@ -2,7 +2,6 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
-import { startPollLoop } from "./lib/pollLoop.server";
 
 // Start the continuous scrape/broadcast poll loop once when this module
 // first loads. On a persistent host (Railway, Fly.io, a VPS) this module
@@ -11,6 +10,12 @@ import { startPollLoop } from "./lib/pollLoop.server";
 // This does nothing useful on serverless hosting (Vercel functions etc.),
 // since the process — and the interval with it — gets torn down between
 // invocations.
+//
+// Dynamic import, not a static top-level one — every .server.ts file in
+// this codebase is loaded this way. A static import here was the actual
+// cause of "startPollLoop is not a function": statically importing a
+// .server.ts file at the top of server.ts breaks the server-only code
+// splitting this build tooling relies on.
 const appOrigin = process.env.PUBLIC_APP_URL;
 const g = globalThis as any;
 if (!appOrigin) {
@@ -20,7 +25,9 @@ if (!appOrigin) {
   );
 } else if (!g.__pollLoopStarted) {
   g.__pollLoopStarted = true;
-  startPollLoop(appOrigin);
+  import("./lib/pollLoop.server").then(({ startPollLoop }) => {
+    startPollLoop(appOrigin);
+  });
 }
 
 type ServerEntry = {
