@@ -2,7 +2,7 @@ import { createFileRoute, Outlet, redirect, Link, useRouter } from "@tanstack/re
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
-import { LayoutDashboard, Briefcase, Search, Users, BarChart3, Settings, LogOut, PackageSearch } from "lucide-react";
+import { LayoutDashboard, Briefcase, Search, Users, BarChart3, Settings, LogOut, PackageSearch, Bot } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -19,6 +19,7 @@ const nav = [
   { to: "/jobs", label: "Jobs", icon: Briefcase },
   { to: "/keywords", label: "Keywords", icon: Search },
   { to: "/subscribers", label: "Subscribers", icon: Users },
+  { to: "/bots", label: "Bots", icon: Bot },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Settings },
 ];

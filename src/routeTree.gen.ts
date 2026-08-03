@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedAnalyticsRouteImport } from './routes/_authenticated/analytics'
+import { Route as AuthenticatedBotsRouteImport } from './routes/_authenticated/bots'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedJobsRouteImport } from './routes/_authenticated/jobs'
 import { Route as AuthenticatedKeywordsRouteImport } from './routes/_authenticated/keywords'
@@ -20,7 +21,9 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedSubscribersRouteImport } from './routes/_authenticated/subscribers'
 import { Route as ApiPublicCronScrapeRouteImport } from './routes/api/public/cron/scrape'
 import { Route as ApiPublicRJobIdRouteImport } from './routes/api/public/r/$jobId'
+import { Route as ApiPublicTelegramPremiumWebhookRouteImport } from './routes/api/public/telegram-premium/webhook'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram/webhook'
+import { Route as ApiPublicTelegramBotsBotIdWebhookRouteImport } from './routes/api/public/telegram-bots/$botId/webhook'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -39,6 +42,11 @@ const AuthRoute = AuthRouteImport.update({
 const AuthenticatedAnalyticsRoute = AuthenticatedAnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedBotsRoute = AuthenticatedBotsRouteImport.update({
+  id: '/bots',
+  path: '/bots',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -77,10 +85,22 @@ const ApiPublicRJobIdRoute = ApiPublicRJobIdRouteImport.update({
   path: '/api/public/r/$jobId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicTelegramPremiumWebhookRoute =
+  ApiPublicTelegramPremiumWebhookRouteImport.update({
+    id: '/api/public/telegram-premium/webhook',
+    path: '/api/public/telegram-premium/webhook',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicTelegramWebhookRoute =
   ApiPublicTelegramWebhookRouteImport.update({
     id: '/api/public/telegram/webhook',
     path: '/api/public/telegram/webhook',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicTelegramBotsBotIdWebhookRoute =
+  ApiPublicTelegramBotsBotIdWebhookRouteImport.update({
+    id: '/api/public/telegram-bots/$botId/webhook',
+    path: '/api/public/telegram-bots/$botId/webhook',
     getParentRoute: () => rootRouteImport,
   } as any)
 
@@ -88,6 +108,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/analytics': typeof AuthenticatedAnalyticsRoute
+  '/bots': typeof AuthenticatedBotsRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/jobs': typeof AuthenticatedJobsRoute
   '/keywords': typeof AuthenticatedKeywordsRoute
@@ -95,12 +116,15 @@ export interface FileRoutesByFullPath {
   '/subscribers': typeof AuthenticatedSubscribersRoute
   '/api/public/cron/scrape': typeof ApiPublicCronScrapeRoute
   '/api/public/r/$jobId': typeof ApiPublicRJobIdRoute
+  '/api/public/telegram-premium/webhook': typeof ApiPublicTelegramPremiumWebhookRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
+  '/api/public/telegram-bots/$botId/webhook': typeof ApiPublicTelegramBotsBotIdWebhookRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/analytics': typeof AuthenticatedAnalyticsRoute
+  '/bots': typeof AuthenticatedBotsRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/jobs': typeof AuthenticatedJobsRoute
   '/keywords': typeof AuthenticatedKeywordsRoute
@@ -108,7 +132,9 @@ export interface FileRoutesByTo {
   '/subscribers': typeof AuthenticatedSubscribersRoute
   '/api/public/cron/scrape': typeof ApiPublicCronScrapeRoute
   '/api/public/r/$jobId': typeof ApiPublicRJobIdRoute
+  '/api/public/telegram-premium/webhook': typeof ApiPublicTelegramPremiumWebhookRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
+  '/api/public/telegram-bots/$botId/webhook': typeof ApiPublicTelegramBotsBotIdWebhookRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -116,6 +142,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/analytics': typeof AuthenticatedAnalyticsRoute
+  '/_authenticated/bots': typeof AuthenticatedBotsRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/jobs': typeof AuthenticatedJobsRoute
   '/_authenticated/keywords': typeof AuthenticatedKeywordsRoute
@@ -123,7 +150,9 @@ export interface FileRoutesById {
   '/_authenticated/subscribers': typeof AuthenticatedSubscribersRoute
   '/api/public/cron/scrape': typeof ApiPublicCronScrapeRoute
   '/api/public/r/$jobId': typeof ApiPublicRJobIdRoute
+  '/api/public/telegram-premium/webhook': typeof ApiPublicTelegramPremiumWebhookRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
+  '/api/public/telegram-bots/$botId/webhook': typeof ApiPublicTelegramBotsBotIdWebhookRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -131,6 +160,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/analytics'
+    | '/bots'
     | '/dashboard'
     | '/jobs'
     | '/keywords'
@@ -138,12 +168,15 @@ export interface FileRouteTypes {
     | '/subscribers'
     | '/api/public/cron/scrape'
     | '/api/public/r/$jobId'
+    | '/api/public/telegram-premium/webhook'
     | '/api/public/telegram/webhook'
+    | '/api/public/telegram-bots/$botId/webhook'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/auth'
     | '/analytics'
+    | '/bots'
     | '/dashboard'
     | '/jobs'
     | '/keywords'
@@ -151,13 +184,16 @@ export interface FileRouteTypes {
     | '/subscribers'
     | '/api/public/cron/scrape'
     | '/api/public/r/$jobId'
+    | '/api/public/telegram-premium/webhook'
     | '/api/public/telegram/webhook'
+    | '/api/public/telegram-bots/$botId/webhook'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/analytics'
+    | '/_authenticated/bots'
     | '/_authenticated/dashboard'
     | '/_authenticated/jobs'
     | '/_authenticated/keywords'
@@ -165,7 +201,9 @@ export interface FileRouteTypes {
     | '/_authenticated/subscribers'
     | '/api/public/cron/scrape'
     | '/api/public/r/$jobId'
+    | '/api/public/telegram-premium/webhook'
     | '/api/public/telegram/webhook'
+    | '/api/public/telegram-bots/$botId/webhook'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -174,7 +212,9 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ApiPublicCronScrapeRoute: typeof ApiPublicCronScrapeRoute
   ApiPublicRJobIdRoute: typeof ApiPublicRJobIdRoute
+  ApiPublicTelegramPremiumWebhookRoute: typeof ApiPublicTelegramPremiumWebhookRoute
   ApiPublicTelegramWebhookRoute: typeof ApiPublicTelegramWebhookRoute
+  ApiPublicTelegramBotsBotIdWebhookRoute: typeof ApiPublicTelegramBotsBotIdWebhookRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -205,6 +245,13 @@ declare module '@tanstack/react-router' {
       path: '/analytics'
       fullPath: '/analytics'
       preLoaderRoute: typeof AuthenticatedAnalyticsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/bots': {
+      id: '/_authenticated/bots'
+      path: '/bots'
+      fullPath: '/bots'
+      preLoaderRoute: typeof AuthenticatedBotsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/dashboard': {
@@ -256,6 +303,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicRJobIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/telegram-premium/webhook': {
+      id: '/api/public/telegram-premium/webhook'
+      path: '/api/public/telegram-premium/webhook'
+      fullPath: '/api/public/telegram-premium/webhook'
+      preLoaderRoute: typeof ApiPublicTelegramPremiumWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/telegram/webhook': {
       id: '/api/public/telegram/webhook'
       path: '/api/public/telegram/webhook'
@@ -263,11 +317,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicTelegramWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/telegram-bots/$botId/webhook': {
+      id: '/api/public/telegram-bots/$botId/webhook'
+      path: '/api/public/telegram-bots/$botId/webhook'
+      fullPath: '/api/public/telegram-bots/$botId/webhook'
+      preLoaderRoute: typeof ApiPublicTelegramBotsBotIdWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAnalyticsRoute: typeof AuthenticatedAnalyticsRoute
+  AuthenticatedBotsRoute: typeof AuthenticatedBotsRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedJobsRoute: typeof AuthenticatedJobsRoute
   AuthenticatedKeywordsRoute: typeof AuthenticatedKeywordsRoute
@@ -277,6 +339,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAnalyticsRoute: AuthenticatedAnalyticsRoute,
+  AuthenticatedBotsRoute: AuthenticatedBotsRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedJobsRoute: AuthenticatedJobsRoute,
   AuthenticatedKeywordsRoute: AuthenticatedKeywordsRoute,
@@ -293,7 +356,10 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ApiPublicCronScrapeRoute: ApiPublicCronScrapeRoute,
   ApiPublicRJobIdRoute: ApiPublicRJobIdRoute,
+  ApiPublicTelegramPremiumWebhookRoute: ApiPublicTelegramPremiumWebhookRoute,
   ApiPublicTelegramWebhookRoute: ApiPublicTelegramWebhookRoute,
+  ApiPublicTelegramBotsBotIdWebhookRoute:
+    ApiPublicTelegramBotsBotIdWebhookRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
